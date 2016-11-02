@@ -134,7 +134,10 @@ enable-statistics = false
 
 # Dump statistics periodically in information logs.
 # Same as rocksdb's default value (10 min).
-stats-dump-period-sec = 600
+# stats-dump-period-sec = 600
+
+# Limit the disk IO of compaction and flush.
+# rate-bytes-per-sec = "100MB"
 
 # options for Column Family write
 # Column Family write used to store commit informations in MVCC model

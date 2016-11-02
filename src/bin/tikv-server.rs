@@ -207,7 +207,7 @@ fn initial_metric(matches: &Matches, config: &toml::Value, node_id: Option<u64>)
 }
 
 fn get_rocksdb_option(matches: &Matches, config: &toml::Value) -> RocksdbOptions {
-    let mut opts = get_rocksdb_default_cf_option(matches, config);
+    let mut opts = RocksdbOptions::new();
     let rmode = get_integer_value("",
                                   "rocksdb.wal-recovery-mode",
                                   matches,
@@ -217,6 +217,37 @@ fn get_rocksdb_option(matches: &Matches, config: &toml::Value) -> RocksdbOptions
     let wal_recovery_mode = util::config::parse_rocksdb_wal_recovery_mode(rmode).unwrap();
     opts.set_wal_recovery_mode(wal_recovery_mode);
 
+    let max_background_compactions = get_integer_value("",
+                                                       "rocksdb.max-background-compactions",
+                                                       matches,
+                                                       config,
+                                                       Some(6),
+                                                       |v| v.as_integer());
+    opts.set_max_background_compactions(max_background_compactions as i32);
+    opts.set_max_background_flushes(2);
+
+    let max_manifest_file_size = get_integer_value("",
+                                                   "rocksdb.max-manifest-file-size",
+                                                   matches,
+                                                   config,
+                                                   Some(20 * 1024 * 1024),
+                                                   |v| v.as_integer());
+    opts.set_max_manifest_file_size(max_manifest_file_size as u64);
+
+    let create_if_missing = config.lookup("rocksdb.create-if-missing")
+        .unwrap_or(&toml::Value::Boolean(true))
+        .as_bool()
+        .unwrap_or(true);
+    opts.create_if_missing(create_if_missing);
+
+    let max_open_files = get_integer_value("",
+                                           "rocksdb.max-open-files",
+                                           matches,
+                                           config,
+                                           Some(40960),
+                                           |v| v.as_integer());
+    opts.set_max_open_files(max_open_files as i32);
+
     let enable_statistics = get_boolean_value("",
                                               "rocksdb.enable-statistics",
                                               matches,
@@ -225,14 +256,25 @@ fn get_rocksdb_option(matches: &Matches, config: &toml::Value) -> RocksdbOptions
                                               |v| v.as_bool());
     if enable_statistics {
         opts.enable_statistics();
+
+        let stats_dump_period_sec = get_integer_value("",
+                                                      "rocksdb.stats-dump-period-sec",
+                                                      matches,
+                                                      config,
+                                                      Some(600),
+                                                      |v| v.as_integer());
+        opts.set_stats_dump_period_sec(stats_dump_period_sec as usize);
     }
-    let stats_dump_period_sec = get_integer_value("",
-                                                  "rocksdb.stats-dump-period-sec",
-                                                  matches,
-                                                  config,
-                                                  Some(600),
-                                                  |v| v.as_integer());
-    opts.set_stats_dump_period_sec(stats_dump_period_sec as usize);
+
+    let rate_bytes_per_sec = get_integer_value("",
+                                               "rocksdb.rate-bytes-per-sec",
+                                               matches,
+                                               config,
+                                               Some(0),
+                                               |v| v.as_integer());
+    if rate_bytes_per_sec > 0 {
+        opts.set_ratelimiter(rate_bytes_per_sec as i64);
+    }
 
     opts
 }
@@ -305,15 +347,6 @@ fn get_rocksdb_default_cf_option(matches: &Matches, config: &toml::Value) -> Roc
     };
     opts.set_min_write_buffer_number_to_merge(min_write_buffer_number_to_merge as i32);
 
-    let max_background_compactions = get_integer_value("",
-                                                       "rocksdb.max-background-compactions",
-                                                       matches,
-                                                       config,
-                                                       Some(6),
-                                                       |v| v.as_integer());
-    opts.set_max_background_compactions(max_background_compactions as i32);
-    opts.set_max_background_flushes(2);
-
     let max_bytes_for_level_base = get_integer_value("",
                                                      "rocksdb.max-bytes-for-level-base",
                                                      matches,
@@ -322,15 +355,6 @@ fn get_rocksdb_default_cf_option(matches: &Matches, config: &toml::Value) -> Roc
                                                      |v| v.as_integer());
     opts.set_max_bytes_for_level_base(max_bytes_for_level_base as u64);
 
-    let max_manifest_file_size = get_integer_value("",
-                                                   "rocksdb.max-manifest-file-size",
-                                                   matches,
-                                                   config,
-                                                   Some(20 * 1024 * 1024),
-                                                   |v| v.as_integer());
-    opts.set_max_manifest_file_size(max_manifest_file_size as u64);
-
-
     let target_file_size_base = get_integer_value("",
                                                   "rocksdb.target-file-size-base",
                                                   matches,
@@ -338,12 +362,6 @@ fn get_rocksdb_default_cf_option(matches: &Matches, config: &toml::Value) -> Roc
                                                   Some(16 * 1024 * 1024),
                                                   |v| v.as_integer());
     opts.set_target_file_size_base(target_file_size_base as u64);
-
-    let create_if_missing = config.lookup("rocksdb.create-if-missing")
-        .unwrap_or(&toml::Value::Boolean(true))
-        .as_bool()
-        .unwrap_or(true);
-    opts.create_if_missing(create_if_missing);
 
     let level_zero_slowdown_writes_trigger = {
         get_integer_value("",
